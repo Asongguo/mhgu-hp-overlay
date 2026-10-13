@@ -103,6 +103,7 @@ pub struct PluginConfig {
     #[section("Font")]
     pub font_size: f32,
     pub font_outline: bool,
+    pub text_offset_y: f32,
     pub font_color_r: u8,
     pub font_color_g: u8,
     pub font_color_b: u8,
@@ -150,6 +151,7 @@ impl Default for PluginConfig {
 
             font_size: 14.0,
             font_outline: true,
+            text_offset_y: -3.0,
             font_color_r: 255,
             font_color_g: 255,
             font_color_b: 255,
@@ -195,6 +197,7 @@ static mut CONFIG: PluginConfig = PluginConfig {
 
     font_size: 14.0,
     font_outline: true,
+    text_offset_y: -3.0,
     font_color_r: 255,
     font_color_g: 255,
     font_color_b: 255,
@@ -827,8 +830,8 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
 
         let label_color = if m.in_current_map { text_color } else { text_away_color };
 
-        // 垂直居中于血条
-        let text_y = bar_top + (bar_height - 14.0) * 0.5;
+        // 垂直居中于血条 (综合字体行高基准与大写字母光学中心，配合 cfg.text_offset_y 微调)
+        let text_y = bar_top + (bar_height - cfg.font_size) * 0.5 + cfg.text_offset_y;
         let text_x = start_x + 6.0;
 
         draw_outlined_text(

@@ -12,4 +12,4 @@ bench = false
 [workspace]
 
 [dependencies]
-mhgu-forge = { path = "../../forge", features = ["imgui", "config"] }
+mhgu-forge = { path = "../forge-rs/forge", features = ["imgui", "config"] }
