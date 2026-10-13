@@ -721,7 +721,7 @@ fn draw_outlined_text(
 }
 
 fn draw_debug_hud(
-    heap: u32,
+    _heap: u32,
     list_ptr: *const MonsterPointerList,
     cooldown: u32,
     valid_count: usize,
