@@ -135,7 +135,13 @@ pub struct PluginConfig {
     pub border_b: u8,
     pub border_a: u8,
 
+    pub totem_r: u8,
+    pub totem_g: u8,
+    pub totem_b: u8,
+    pub totem_a: u8,
+
     #[section("Display")]
+    pub native_style: bool,
     pub current_map_only: bool,
     pub show_debug: bool,
 }
@@ -146,8 +152,8 @@ impl Default for PluginConfig {
             pos_x: 480.0,
             pos_y: 35.0,
             bar_width: 320.0,
-            bar_height: 18.0,
-            row_spacing: 42.0,
+            bar_height: 33.6,
+            row_spacing: 52.0,
 
             font_size: 14.0,
             font_outline: true,
@@ -182,6 +188,12 @@ impl Default for PluginConfig {
             border_b: 230,
             border_a: 220,
 
+            totem_r: 0,
+            totem_g: 185,
+            totem_b: 245,
+            totem_a: 153,
+
+            native_style: true,
             current_map_only: false,
             show_debug: false,
         }
@@ -192,8 +204,8 @@ static mut CONFIG: PluginConfig = PluginConfig {
     pos_x: 480.0,
     pos_y: 35.0,
     bar_width: 320.0,
-    bar_height: 18.0,
-    row_spacing: 42.0,
+    bar_height: 33.6,
+    row_spacing: 52.0,
 
     font_size: 14.0,
     font_outline: true,
@@ -228,6 +240,12 @@ static mut CONFIG: PluginConfig = PluginConfig {
     border_b: 230,
     border_a: 220,
 
+    totem_r: 0,
+    totem_g: 185,
+    totem_b: 245,
+    totem_a: 153,
+
+    native_style: true,
     current_map_only: false,
     show_debug: false,
 };
@@ -780,68 +798,210 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
         cfg.outline_color_a,
     );
 
+    // MHGU 原生古代猎人图腾点阵数据 (16 行 × 12 列)，来源于 JS LED 预览提取
+    // 位 11~0 分别代表第 0~11 列的点亮状态
+    const TOTEM_PATTERN: [u16; 16] = [
+        0xFF6, // row  0: ########.##.
+        0xFF0, // row  1: ########....
+        0xC30, // row  2: ##....##....
+        0xDB6, // row  3: ##.##.##.##.
+        0xCB6, // row  4: ##..#.##.##.
+        0xFB0, // row  5: #####.##....
+        0x030, // row  6: ......##....
+        0x1B6, // row  7: ...##.##.##.
+        0x1B6, // row  8: ...##.##.##.
+        0x030, // row  9: ......##....
+        0xFB0, // row 10: #####.##....
+        0xCB6, // row 11: ##..#.##.##.
+        0xDB6, // row 12: ##.##.##.##.
+        0xC30, // row 13: ##....##....
+        0xFF0, // row 14: ########....
+        0xFF6, // row 15: ########.##.
+    ];
+
     for m in monsters {
         let bar_top = current_y;
         let bar_bottom = bar_top + bar_height;
 
-        // 1. 底框背景
-        draw_list.add_rect_filled(
-            ImVec2::new(start_x, bar_top),
-            ImVec2::new(start_x + bar_width, bar_bottom),
-            bg_color,
-            3.0,
-        );
+        if cfg.native_style {
+            // ========================================================
+            // 怪物猎人GU (MHGU) 原生点阵 UI 风格 (带半透明青蓝风格)
+            // ========================================================
+            // 点阵尺寸计算：16行等比撑满 bar_height
+            let cell = bar_height / 16.0;
+            let totem_w = cell * 12.0;
 
-        // 2. 红色底层: 代表已损失血量
-        draw_list.add_rect_filled(
-            ImVec2::new(start_x, bar_top),
-            ImVec2::new(start_x + bar_width, bar_bottom),
-            red_lost,
-            3.0,
-        );
+            // 左右反转布局：
+            // 左侧为主血槽 [start_x .. bar_end_x]，右侧为图腾区 [bar_end_x .. (start_x + bar_width)]
+            let bar_actual_w = (bar_width - totem_w).max(40.0);
+            let bar_start_x = start_x;
+            let bar_end_x = start_x + bar_actual_w;
 
-        // 3. 绿色顶层: 代表剩余血量
-        if m.max_hp > 0 && m.hp > 0 {
-            let ratio = (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0);
-            let green_width = bar_width * ratio;
+            // 原生 UI 青蓝荧光色彩体系 (从配置读取 RGB 与 Alpha 透明度)
+            let col_cyan_glow = color(cfg.totem_r, cfg.totem_g, cfg.totem_b, cfg.totem_a);
+            let col_cyan_bg   = color(cfg.bg_r, cfg.bg_g, cfg.bg_b, cfg.bg_a); // 非点亮背景完全透明或随配置(bg_a=0)
+
+            // 1. 底框背景
+            if cfg.bg_a > 0 {
+                draw_list.add_rect_filled(
+                    ImVec2::new(start_x, bar_top),
+                    ImVec2::new(start_x + bar_width, bar_bottom),
+                    col_cyan_bg,
+                    0.0,
+                );
+            }
+
+            // 2. 红色损失血量底层 (扣血时显现)
+            draw_list.add_rect_filled(
+                ImVec2::new(bar_start_x, bar_top),
+                ImVec2::new(bar_end_x, bar_bottom),
+                red_lost,
+                0.0,
+            );
+
+            // 3. 剩余血量进度条 (左右反转: 满血贴近右侧图腾，向右靠齐，扣血时左侧露出红色底层)
+            if m.max_hp > 0 && m.hp > 0 {
+                let ratio = (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0);
+                let current_w = bar_actual_w * ratio;
+                let hp_left_x = bar_end_x - current_w;
+
+                // 绿色血量进度条
+                draw_list.add_rect_filled(
+                    ImVec2::new(hp_left_x, bar_top),
+                    ImVec2::new(bar_end_x, bar_bottom),
+                    green_remain,
+                    0.0,
+                );
+
+                // GU 风格血条顶光高光条 (在绿色血条顶部叠加微弱半透明高光)
+                let hl_h = (bar_height * 0.28).max(1.5);
+                let col_highlight = color(255, 255, 255, 60);
+                draw_list.add_rect_filled(
+                    ImVec2::new(hp_left_x, bar_top + 1.0),
+                    ImVec2::new(bar_end_x, bar_top + 1.0 + hl_h),
+                    col_highlight,
+                    0.0,
+                );
+            }
+
+            // 4. 点阵渲染 (左右反转)：
+            // - 血槽自适应部分 (0 列到 total_cols - 12 列): 上下边框点亮第0行和第15行，最左端第0列封口
+            // - 图腾部分 (右侧 12 列): 水平镜像翻转图腾，面向左侧血条
+            let total_cols = ((bar_width / cell) as usize).max(12);
+            for r in 0..16 {
+                let row_bits = TOTEM_PATTERN[r];
+                let py = bar_top + (r as f32) * cell;
+
+                // 右侧 12 列: 水平镜像图腾 (原本的第0列现在贴在最右侧，齿孔贴在靠近血槽的内侧)
+                for c in 0..12 {
+                    if ((row_bits >> (11 - c)) & 1) != 0 {
+                        // 镜像 X 位置：从右向左排布
+                        let px = (start_x + bar_width) - ((c + 1) as f32) * cell;
+                        draw_list.add_rect_filled(
+                            ImVec2::new(px, py),
+                            ImVec2::new(px + cell, py + cell),
+                            col_cyan_glow,
+                            0.0,
+                        );
+                    }
+                }
+
+                // 左侧延伸血条部分 (仅第0行和第15行点亮上下边框)
+                if r == 0 || r == 15 {
+                    let border_cols = total_cols.saturating_sub(12);
+                    for c in 0..border_cols {
+                        let px = start_x + (c as f32) * cell;
+                        draw_list.add_rect_filled(
+                            ImVec2::new(px, py),
+                            ImVec2::new(px + cell, py + cell),
+                            col_cyan_glow,
+                            0.0,
+                        );
+                    }
+                }
+            }
+
+            // 5. 文字描述 (置于血槽内，正中对齐，文字不反转正常从左向右阅读)
+            let mut text_buf = StringBuffer::<64>::new();
+            let name = get_monster_name(m.id);
+            let _ = write!(text_buf, "{}: {}/{}", name, m.hp, m.max_hp);
+
+            let label_color = if m.in_current_map { text_color } else { text_away_color };
+
+            let text_y = bar_top + (bar_height - cfg.font_size) * 0.5 + cfg.text_offset_y;
+            let text_x = bar_start_x + 8.0;
+
+            draw_outlined_text(
+                &draw_list,
+                ImVec2::new(text_x, text_y),
+                label_color,
+                outline_color,
+                cfg.font_outline,
+                text_buf.as_str(),
+            );
+        } else {
+            // ========================================================
+            // 经典扁平血条风格 (左右反转: 从右向左扣血)
+            // ========================================================
+            // 1. 底框背景
             draw_list.add_rect_filled(
                 ImVec2::new(start_x, bar_top),
-                ImVec2::new(start_x + green_width, bar_bottom),
-                green_remain,
+                ImVec2::new(start_x + bar_width, bar_bottom),
+                bg_color,
                 3.0,
             );
+
+            // 2. 红色底层: 代表已损失血量
+            draw_list.add_rect_filled(
+                ImVec2::new(start_x, bar_top),
+                ImVec2::new(start_x + bar_width, bar_bottom),
+                red_lost,
+                3.0,
+            );
+
+            // 3. 绿色顶层: 代表剩余血量 (靠右对齐)
+            if m.max_hp > 0 && m.hp > 0 {
+                let ratio = (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0);
+                let green_width = bar_width * ratio;
+                let green_left_x = start_x + bar_width - green_width;
+                draw_list.add_rect_filled(
+                    ImVec2::new(green_left_x, bar_top),
+                    ImVec2::new(start_x + bar_width, bar_bottom),
+                    green_remain,
+                    3.0,
+                );
+            }
+
+            // 4. 外边框
+            draw_list.add_rect(
+                ImVec2::new(start_x, bar_top),
+                ImVec2::new(start_x + bar_width, bar_bottom),
+                border_color,
+                3.0,
+                1.2,
+                ImDrawFlags::None,
+            );
+
+            // 5. 血条上层覆盖文字描述，例如: "青熊兽: 500/1000" (正常文字，靠左阅读)
+            let mut text_buf = StringBuffer::<64>::new();
+            let name = get_monster_name(m.id);
+            let _ = write!(text_buf, "{}: {}/{}", name, m.hp, m.max_hp);
+
+            let label_color = if m.in_current_map { text_color } else { text_away_color };
+
+            // 垂直居中于血条 (综合字体行高基准与大写字母光学中心，配合 cfg.text_offset_y 微调)
+            let text_y = bar_top + (bar_height - cfg.font_size) * 0.5 + cfg.text_offset_y;
+            let text_x = start_x + 8.0;
+
+            draw_outlined_text(
+                &draw_list,
+                ImVec2::new(text_x, text_y),
+                label_color,
+                outline_color,
+                cfg.font_outline,
+                text_buf.as_str(),
+            );
         }
-
-        // 4. 外边框
-        draw_list.add_rect(
-            ImVec2::new(start_x, bar_top),
-            ImVec2::new(start_x + bar_width, bar_bottom),
-            border_color,
-            3.0,
-            1.2,
-            ImDrawFlags::None,
-        );
-
-        // 5. 血条上层覆盖文字描述，例如: "青熊兽: 500/1000"
-        let mut text_buf = StringBuffer::<64>::new();
-        let name = get_monster_name(m.id);
-        let _ = write!(text_buf, "{}: {}/{}", name, m.hp, m.max_hp);
-
-
-        let label_color = if m.in_current_map { text_color } else { text_away_color };
-
-        // 垂直居中于血条 (综合字体行高基准与大写字母光学中心，配合 cfg.text_offset_y 微调)
-        let text_y = bar_top + (bar_height - cfg.font_size) * 0.5 + cfg.text_offset_y;
-        let text_x = start_x + 6.0;
-
-        draw_outlined_text(
-            &draw_list,
-            ImVec2::new(text_x, text_y),
-            label_color,
-            outline_color,
-            cfg.font_outline,
-            text_buf.as_str(),
-        );
 
         current_y += row_spacing;
     }
