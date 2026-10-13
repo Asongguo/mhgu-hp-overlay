@@ -832,16 +832,20 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
             // ========================================================
             // 点阵尺寸计算：16行等比撑满 bar_height
             let cell = bar_height / 16.0;
-            let totem_w = cell * 12.0;
 
             // 布局划分：
-            // mirror = true (反转): 左侧为主血槽 [start_x .. bar_end_x]，右侧为图腾区 [bar_end_x .. (start_x + bar_width)]
-            // mirror = false (常规): 左侧为图腾区 [start_x .. bar_start_x]，右侧为主血槽 [bar_start_x .. (start_x + bar_width)]
-            let bar_actual_w = (bar_width - totem_w).max(40.0);
+            // 点阵结构：c=0..7 为图腾方块(宽 8*cell)，c=8 为间隙(1*cell)，c=9..10 为齿孔(2*cell)，c=11 为外侧(1*cell)
+            // mirror = true (反转):
+            // - 图腾在最右侧 (占 8*cell)，齿孔和间隙在距离右端 8*cell ~ 12*cell 区域
+            // - 血条向右一直延伸到图腾实心方块外壁 (即右侧保留 8*cell)，从而完全填满齿孔与透明间隙
+            // mirror = false (常规):
+            // - 血条向左延伸到左侧图腾实心方块外壁 (左侧保留 8*cell)
+            let totem_block_w = cell * 8.0;
+            let bar_actual_w = (bar_width - totem_block_w).max(40.0);
             let (bar_start_x, bar_end_x) = if cfg.mirror {
-                (start_x, start_x + bar_actual_w)
+                (start_x, start_x + bar_width - totem_block_w)
             } else {
-                (start_x + totem_w, start_x + bar_width)
+                (start_x + totem_block_w, start_x + bar_width)
             };
 
             // 原生 UI 青蓝荧光色彩体系 (从配置读取 RGB 与 Alpha 透明度)
@@ -866,34 +870,24 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
                 0.0,
             );
 
-            // 3. 剩余血量进度条
+            // 3. 剩余血量进度条 (无上下色差，纯净平整填充)
             if m.max_hp > 0 && m.hp > 0 {
                 let ratio = (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0);
                 let current_w = bar_actual_w * ratio;
 
                 let (green_left, green_right) = if cfg.mirror {
-                    // 反转模式：满血靠右，从左向右扣血
+                    // 反转模式：满血靠右无缝贴近图腾方块，从左向右扣血
                     (bar_end_x - current_w, bar_end_x)
                 } else {
-                    // 常规模式：满血靠左，从右向左扣血
+                    // 常规模式：满血靠左无缝贴近图腾方块，从右向左扣血
                     (bar_start_x, bar_start_x + current_w)
                 };
 
-                // 绿色血量进度条
+                // 绿色血量进度条 (纯平单色，无额外高光层导致的上半部色差)
                 draw_list.add_rect_filled(
                     ImVec2::new(green_left, bar_top),
                     ImVec2::new(green_right, bar_bottom),
                     green_remain,
-                    0.0,
-                );
-
-                // GU 风格血条顶光高光条 (在绿色血条顶部叠加微弱半透明高光)
-                let hl_h = (bar_height * 0.28).max(1.5);
-                let col_highlight = color(255, 255, 255, 60);
-                draw_list.add_rect_filled(
-                    ImVec2::new(green_left, bar_top + 1.0),
-                    ImVec2::new(green_right, bar_top + 1.0 + hl_h),
-                    col_highlight,
                     0.0,
                 );
             }
@@ -918,9 +912,9 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
                             );
                         }
                     }
-                    // - 左侧延伸血条部分 (仅第0行和第15行点亮上下边框)
+                    // - 左侧延伸血条部分 (上下边框点阵延伸至图腾方块，完全填补齿孔空隙)
                     if r == 0 || r == 15 {
-                        let border_cols = total_cols.saturating_sub(12);
+                        let border_cols = total_cols.saturating_sub(8);
                         for c in 0..border_cols {
                             let px = start_x + (c as f32) * cell;
                             draw_list.add_rect_filled(
@@ -945,9 +939,9 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
                             );
                         }
                     }
-                    // - 右侧延伸血条部分 (仅第0行和第15行点亮上下边框)
+                    // - 右侧延伸血条部分 (从左侧图腾方块外壁一直点亮至右端)
                     if r == 0 || r == 15 {
-                        for c in 12..total_cols {
+                        for c in 8..total_cols {
                             let px = start_x + (c as f32) * cell;
                             draw_list.add_rect_filled(
                                 ImVec2::new(px, py),
