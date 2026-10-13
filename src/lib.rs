@@ -142,6 +142,7 @@ pub struct PluginConfig {
 
     #[section("Display")]
     pub native_style: bool,
+    pub mirror: bool,
     pub current_map_only: bool,
     pub show_debug: bool,
 }
@@ -194,6 +195,7 @@ impl Default for PluginConfig {
             totem_a: 153,
 
             native_style: true,
+            mirror: true,
             current_map_only: false,
             show_debug: false,
         }
@@ -246,6 +248,7 @@ static mut CONFIG: PluginConfig = PluginConfig {
     totem_a: 153,
 
     native_style: true,
+    mirror: true,
     current_map_only: false,
     show_debug: false,
 };
@@ -831,11 +834,15 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
             let cell = bar_height / 16.0;
             let totem_w = cell * 12.0;
 
-            // 左右反转布局：
-            // 左侧为主血槽 [start_x .. bar_end_x]，右侧为图腾区 [bar_end_x .. (start_x + bar_width)]
+            // 布局划分：
+            // mirror = true (反转): 左侧为主血槽 [start_x .. bar_end_x]，右侧为图腾区 [bar_end_x .. (start_x + bar_width)]
+            // mirror = false (常规): 左侧为图腾区 [start_x .. bar_start_x]，右侧为主血槽 [bar_start_x .. (start_x + bar_width)]
             let bar_actual_w = (bar_width - totem_w).max(40.0);
-            let bar_start_x = start_x;
-            let bar_end_x = start_x + bar_actual_w;
+            let (bar_start_x, bar_end_x) = if cfg.mirror {
+                (start_x, start_x + bar_actual_w)
+            } else {
+                (start_x + totem_w, start_x + bar_width)
+            };
 
             // 原生 UI 青蓝荧光色彩体系 (从配置读取 RGB 与 Alpha 透明度)
             let col_cyan_glow = color(cfg.totem_r, cfg.totem_g, cfg.totem_b, cfg.totem_a);
@@ -859,16 +866,23 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
                 0.0,
             );
 
-            // 3. 剩余血量进度条 (左右反转: 满血贴近右侧图腾，向右靠齐，扣血时左侧露出红色底层)
+            // 3. 剩余血量进度条
             if m.max_hp > 0 && m.hp > 0 {
                 let ratio = (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0);
                 let current_w = bar_actual_w * ratio;
-                let hp_left_x = bar_end_x - current_w;
+
+                let (green_left, green_right) = if cfg.mirror {
+                    // 反转模式：满血靠右，从左向右扣血
+                    (bar_end_x - current_w, bar_end_x)
+                } else {
+                    // 常规模式：满血靠左，从右向左扣血
+                    (bar_start_x, bar_start_x + current_w)
+                };
 
                 // 绿色血量进度条
                 draw_list.add_rect_filled(
-                    ImVec2::new(hp_left_x, bar_top),
-                    ImVec2::new(bar_end_x, bar_bottom),
+                    ImVec2::new(green_left, bar_top),
+                    ImVec2::new(green_right, bar_bottom),
                     green_remain,
                     0.0,
                 );
@@ -877,46 +891,71 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
                 let hl_h = (bar_height * 0.28).max(1.5);
                 let col_highlight = color(255, 255, 255, 60);
                 draw_list.add_rect_filled(
-                    ImVec2::new(hp_left_x, bar_top + 1.0),
-                    ImVec2::new(bar_end_x, bar_top + 1.0 + hl_h),
+                    ImVec2::new(green_left, bar_top + 1.0),
+                    ImVec2::new(green_right, bar_top + 1.0 + hl_h),
                     col_highlight,
                     0.0,
                 );
             }
 
-            // 4. 点阵渲染 (左右反转)：
-            // - 血槽自适应部分 (0 列到 total_cols - 12 列): 上下边框点亮第0行和第15行，最左端第0列封口
-            // - 图腾部分 (右侧 12 列): 水平镜像翻转图腾，面向左侧血条
+            // 4. 点阵渲染：
             let total_cols = ((bar_width / cell) as usize).max(12);
             for r in 0..16 {
                 let row_bits = TOTEM_PATTERN[r];
                 let py = bar_top + (r as f32) * cell;
 
-                // 右侧 12 列: 水平镜像图腾 (原本的第0列现在贴在最右侧，齿孔贴在靠近血槽的内侧)
-                for c in 0..12 {
-                    if ((row_bits >> (11 - c)) & 1) != 0 {
-                        // 镜像 X 位置：从右向左排布
-                        let px = (start_x + bar_width) - ((c + 1) as f32) * cell;
-                        draw_list.add_rect_filled(
-                            ImVec2::new(px, py),
-                            ImVec2::new(px + cell, py + cell),
-                            col_cyan_glow,
-                            0.0,
-                        );
+                if cfg.mirror {
+                    // 镜像模式：
+                    // - 右侧 12 列: 水平镜像图腾
+                    for c in 0..12 {
+                        if ((row_bits >> (11 - c)) & 1) != 0 {
+                            let px = (start_x + bar_width) - ((c + 1) as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
                     }
-                }
-
-                // 左侧延伸血条部分 (仅第0行和第15行点亮上下边框)
-                if r == 0 || r == 15 {
-                    let border_cols = total_cols.saturating_sub(12);
-                    for c in 0..border_cols {
-                        let px = start_x + (c as f32) * cell;
-                        draw_list.add_rect_filled(
-                            ImVec2::new(px, py),
-                            ImVec2::new(px + cell, py + cell),
-                            col_cyan_glow,
-                            0.0,
-                        );
+                    // - 左侧延伸血条部分 (仅第0行和第15行点亮上下边框)
+                    if r == 0 || r == 15 {
+                        let border_cols = total_cols.saturating_sub(12);
+                        for c in 0..border_cols {
+                            let px = start_x + (c as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
+                    }
+                } else {
+                    // 常规模式：
+                    // - 左侧 12 列: 正常图腾图案
+                    for c in 0..12 {
+                        if ((row_bits >> (11 - c)) & 1) != 0 {
+                            let px = start_x + (c as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
+                    }
+                    // - 右侧延伸血条部分 (仅第0行和第15行点亮上下边框)
+                    if r == 0 || r == 15 {
+                        for c in 12..total_cols {
+                            let px = start_x + (c as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
                     }
                 }
             }
@@ -941,7 +980,7 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
             );
         } else {
             // ========================================================
-            // 经典扁平血条风格 (左右反转: 从右向左扣血)
+            // 经典扁平血条风格
             // ========================================================
             // 1. 底框背景
             draw_list.add_rect_filled(
@@ -959,14 +998,18 @@ fn draw_hp_overlay(monsters: &[MonsterDisplay]) {
                 3.0,
             );
 
-            // 3. 绿色顶层: 代表剩余血量 (靠右对齐)
+            // 3. 绿色顶层: 代表剩余血量
             if m.max_hp > 0 && m.hp > 0 {
                 let ratio = (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0);
                 let green_width = bar_width * ratio;
-                let green_left_x = start_x + bar_width - green_width;
+                let (green_left, green_right) = if cfg.mirror {
+                    (start_x + bar_width - green_width, start_x + bar_width)
+                } else {
+                    (start_x, start_x + green_width)
+                };
                 draw_list.add_rect_filled(
-                    ImVec2::new(green_left_x, bar_top),
-                    ImVec2::new(start_x + bar_width, bar_bottom),
+                    ImVec2::new(green_left, bar_top),
+                    ImVec2::new(green_right, bar_bottom),
                     green_remain,
                     3.0,
                 );
