@@ -97,20 +97,46 @@ pub unsafe fn ensure_chinese_font_loaded(font_size: f32) {
 
         let romfs_mount = forge::fs::romfs::mount_point();
 
-        // 仅在合法挂载的 romfs / 插件目录下安全探测字体文件，避免触发 nn::fs 的未挂载设备 PANIC
-        let candidates = [
-            alloc::format!("{}:/nativeNX/plugins/font.ttf", romfs_mount),
-            alloc::format!("{}:/nativeNX/plugins/chinese.ttf", romfs_mount),
-            alloc::format!("{}:/nativeNX/plugins/simhei.ttf", romfs_mount),
-            alloc::format!("{}:/font.ttf", romfs_mount),
-            alloc::format!("{}:/chinese.ttf", romfs_mount),
-        ];
-
+        // 1. 检查是否在配置文件中指定了自定义字体路径
+        let custom_font = crate::config::get_custom_font_path();
         let mut found_path: Option<alloc::string::String> = None;
-        for path in &candidates {
-            if forge::fs::file_exists(path) {
-                found_path = Some(path.clone());
-                break;
+
+        if !custom_font.is_empty() {
+            // 如果用户指定了包含设备符的绝对路径 (如 "rom:/..." 或 "sdmc:/...")，直接检测
+            if custom_font.contains(":/") {
+                if forge::fs::file_exists(custom_font) {
+                    found_path = Some(alloc::string::String::from(custom_font));
+                }
+            } else {
+                // 相对路径：优先在插件同级目录 (nativeNX/plugins/) 以及 romfs 根目录下查找
+                let candidates = [
+                    alloc::format!("{}:/nativeNX/plugins/{}", romfs_mount, custom_font),
+                    alloc::format!("{}:/{}", romfs_mount, custom_font),
+                ];
+                for path in &candidates {
+                    if forge::fs::file_exists(path) {
+                        found_path = Some(path.clone());
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 2. 若未配置或未找到自定义字体，回退到默认候选字体探测
+        if found_path.is_none() {
+            let candidates = [
+                alloc::format!("{}:/nativeNX/plugins/font.ttf", romfs_mount),
+                alloc::format!("{}:/nativeNX/plugins/chinese.ttf", romfs_mount),
+                alloc::format!("{}:/nativeNX/plugins/simhei.ttf", romfs_mount),
+                alloc::format!("{}:/font.ttf", romfs_mount),
+                alloc::format!("{}:/chinese.ttf", romfs_mount),
+            ];
+
+            for path in &candidates {
+                if forge::fs::file_exists(path) {
+                    found_path = Some(path.clone());
+                    break;
+                }
             }
         }
 

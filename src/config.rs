@@ -172,6 +172,39 @@ pub static mut CONFIG: PluginConfig = PluginConfig {
     show_debug: false,
 };
 
+pub static mut CUSTOM_FONT_PATH: [u8; 128] = [0; 128];
+
+pub fn get_custom_font_path() -> &'static str {
+    unsafe {
+        let ptr = core::ptr::addr_of_mut!(CUSTOM_FONT_PATH) as *const u8;
+        let mut len = 0;
+        while len < 128 && *ptr.add(len) != 0 {
+            len += 1;
+        }
+        let slice = core::slice::from_raw_parts(ptr, len);
+        core::str::from_utf8(slice).unwrap_or("")
+    }
+}
+
+pub fn set_custom_font_path(path: &str) {
+    unsafe {
+        let ptr = core::ptr::addr_of_mut!(CUSTOM_FONT_PATH) as *mut u8;
+        let bytes = path.as_bytes();
+        let copy_len = bytes.len().min(127);
+        for i in 0..copy_len {
+            *ptr.add(i) = bytes[i];
+        }
+        *ptr.add(copy_len) = 0;
+    }
+}
+
+pub fn clear_custom_font_path() {
+    unsafe {
+        let ptr = core::ptr::addr_of_mut!(CUSTOM_FONT_PATH) as *mut u8;
+        *ptr = 0;
+    }
+}
+
 pub fn load_ini_config() {
     let ini_name = "hp_overlay.ini";
     let alternate_name = "hp-overlay.ini";
@@ -190,6 +223,15 @@ pub fn load_ini_config() {
                 use forge::config::IniDeserialize;
                 unsafe {
                     CONFIG = PluginConfig::from_ini(&ini);
+
+                    // 读取可选自定义字体路径配置项：font_path
+                    clear_custom_font_path();
+                    if let Some(font_p) = ini.get("Font", "font_path") {
+                        let trimmed = font_p.trim();
+                        if !trimmed.is_empty() {
+                            set_custom_font_path(trimmed);
+                        }
+                    }
                 }
                 return;
             }
@@ -199,5 +241,6 @@ pub fn load_ini_config() {
     // 未找到 ini 文件时，直接保留内存中的默认配置 Default::default()
     unsafe {
         CONFIG = PluginConfig::default();
+        clear_custom_font_path();
     }
 }

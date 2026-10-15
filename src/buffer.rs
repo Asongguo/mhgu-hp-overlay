@@ -17,7 +17,28 @@ impl<const N: usize> StringBuffer<N> {
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    pub fn set_str(&mut self, s: &str) {
+        self.clear();
+        let _ = core::fmt::Write::write_str(self, s);
+    }
 }
+
+impl<const N: usize> Clone for StringBuffer<N> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<const N: usize> Copy for StringBuffer<N> {}
 
 impl<const N: usize> Write for StringBuffer<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
