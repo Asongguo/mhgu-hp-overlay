@@ -159,37 +159,29 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
             // ========================================================
             let cell = bar_height / 16.0;
 
-            // 图腾整个占 12 列宽 (包含 8 列主体 + 4 列齿孔间隙)
-            let totem_w = cell * 12.0;
-            let bar_actual_w = (bar_width - totem_w).max(40.0);
-
-            // 划分血条色槽区域与图腾底板区域，严格无缝相接，互不溢入
-            let (bar_start_x, bar_end_x, totem_left_x) = if cfg.mirror {
-                // 图腾在最右侧: 血条在左 (start_x .. start_x + bar_actual_w), 图腾在右
-                (start_x, start_x + bar_actual_w, start_x + bar_actual_w)
+            let totem_block_w = cell * 8.0;
+            let bar_actual_w = (bar_width - totem_block_w).max(40.0);
+            let (bar_start_x, bar_end_x) = if cfg.mirror {
+                (start_x, start_x + bar_width - totem_block_w)
             } else {
-                // 图腾在最左侧: 图腾在左 (start_x .. start_x + totem_w), 血条在右
-                (start_x + totem_w, start_x + bar_width, start_x)
+                (start_x + totem_block_w, start_x + bar_width)
             };
 
-            // 1. 图腾底板黑色基座 (彻底阻断绿红血色穿透齿孔)
-            let totem_base_col = color(18, 20, 24, 230);
-            draw_list.add_rect_filled(
-                ImVec2::new(totem_left_x, bar_top),
-                ImVec2::new(totem_left_x + totem_w, bar_bottom),
-                totem_base_col,
-                0.0,
-            );
+            // 原生 UI 青蓝荧光色彩体系 (从配置读取 RGB 与 Alpha 透明度)
+            let col_cyan_glow = color(cfg.totem_r, cfg.totem_g, cfg.totem_b, cfg.totem_a);
+            let col_cyan_bg = color(cfg.bg_r, cfg.bg_g, cfg.bg_b, cfg.bg_a);
 
-            // 2. 底层半透明黑灰背景 (仅在血条槽内)
-            draw_list.add_rect_filled(
-                ImVec2::new(bar_start_x, bar_top),
-                ImVec2::new(bar_end_x, bar_bottom),
-                bg_color,
-                0.0,
-            );
+            // 1. 底框背景
+            if cfg.bg_a > 0 {
+                draw_list.add_rect_filled(
+                    ImVec2::new(start_x, bar_top),
+                    ImVec2::new(start_x + bar_width, bar_bottom),
+                    col_cyan_bg,
+                    0.0,
+                );
+            }
 
-            // 3. 红色损失血量底槽 (全长)
+            // 2. 红色损失血量底槽 (扣血时显现)
             draw_list.add_rect_filled(
                 ImVec2::new(bar_start_x, bar_top),
                 ImVec2::new(bar_end_x, bar_bottom),
@@ -197,29 +189,23 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 0.0,
             );
 
-            // 4. 绿色当前剩余血量条 (支持 reverse_drain 配置扣血方向)
-            let ratio = if m.max_hp > 0 {
-                (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
+            // 3. 绿色当前剩余血量条 (支持 reverse_drain 配置扣血方向)
+            if m.max_hp > 0 && m.hp > 0 {
+                let ratio = (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0);
+                let current_w = bar_actual_w * ratio;
 
-            // 扣减方向判定：
-            // mirror=true: 默认满血靠右（图腾侧），从左向右扣
-            // reverse_drain=true 则反转为满血靠左，向右扣
-            let drain_from_right = if cfg.mirror {
-                !cfg.reverse_drain
-            } else {
-                cfg.reverse_drain
-            };
+                let drain_from_right = if cfg.mirror {
+                    !cfg.reverse_drain
+                } else {
+                    cfg.reverse_drain
+                };
 
-            let (green_left, green_right) = if drain_from_right {
-                (bar_end_x - bar_actual_w * ratio, bar_end_x)
-            } else {
-                (bar_start_x, bar_start_x + bar_actual_w * ratio)
-            };
+                let (green_left, green_right) = if drain_from_right {
+                    (bar_end_x - current_w, bar_end_x)
+                } else {
+                    (bar_start_x, bar_start_x + current_w)
+                };
 
-            if ratio > 0.0 {
                 draw_list.add_rect_filled(
                     ImVec2::new(green_left, bar_top),
                     ImVec2::new(green_right, bar_bottom),
@@ -228,16 +214,69 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 );
             }
 
-            // 5. 原生高光点缀：血条顶部细亮线 (增强层次感)
-            let highlight_col = color(255, 255, 255, 45);
-            draw_list.add_rect_filled(
-                ImVec2::new(bar_start_x, bar_top),
-                ImVec2::new(bar_end_x, bar_top + 1.2),
-                highlight_col,
-                0.0,
-            );
+            // 4. 点阵渲染：图腾与上下边框
+            let total_cols = ((bar_width / cell) as usize).max(12);
+            for r in 0..16 {
+                let row_bits = TOTEM_PATTERN[r];
+                let py = bar_top + (r as f32) * cell;
 
-            // 6. 文字描述 (置于血槽内，支持中英文切换)
+                if cfg.mirror {
+                    // 镜像模式：
+                    // - 右侧 12 列: 水平镜像图腾
+                    for c in 0..12 {
+                        if ((row_bits >> (11 - c)) & 1) != 0 {
+                            let px = (start_x + bar_width) - ((c + 1) as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
+                    }
+                    // - 左侧延伸血条部分 (上下边框点阵延伸至图腾方块，完全填补齿孔空隙)
+                    if r == 0 || r == 15 {
+                        let border_cols = total_cols.saturating_sub(8);
+                        for c in 0..border_cols {
+                            let px = start_x + (c as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
+                    }
+                } else {
+                    // 常规模式：
+                    // - 左侧 12 列: 正常图腾图案
+                    for c in 0..12 {
+                        if ((row_bits >> (11 - c)) & 1) != 0 {
+                            let px = start_x + (c as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
+                    }
+                    // - 右侧延伸血条部分 (从左侧图腾方块外壁一直点亮至右端)
+                    if r == 0 || r == 15 {
+                        for c in 8..total_cols {
+                            let px = start_x + (c as f32) * cell;
+                            draw_list.add_rect_filled(
+                                ImVec2::new(px, py),
+                                ImVec2::new(px + cell, py + cell),
+                                col_cyan_glow,
+                                0.0,
+                            );
+                        }
+                    }
+                }
+            }
+
+            // 5. 文字描述 (置于血槽内，支持中英文切换)
             let mut text_buf = StringBuffer::<64>::new();
             let name = if cfg.use_english {
                 get_monster_en_name(m.id)
@@ -248,12 +287,11 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
 
             let label_color = if m.in_current_map { text_color } else { text_away_color };
 
-            // 垂直居中微调 (结合字体行高和用户配置)
             let text_y = bar_top + (bar_height - cfg.font_size) * 0.5 + cfg.text_offset_y;
             let text_x = if cfg.mirror {
-                start_x + 10.0
+                start_x + 8.0
             } else {
-                bar_start_x + 10.0
+                bar_start_x + 8.0
             };
 
             draw_outlined_text(
@@ -265,37 +303,6 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 cfg.font_size,
                 text_buf.as_str(),
             );
-
-            // 7. 绘制 MHGU 原生点阵图腾 (点间微隙 + 清晰分明无拉丝伪影)
-            let totem_color = color(cfg.totem_r, cfg.totem_g, cfg.totem_b, cfg.totem_a);
-            let dot_inset = 0.8f32; // 每个 LED 点缩进 0.8 像素，形成点阵间隙
-            let dot_size = (cell - dot_inset).max(1.0);
-
-            for row in 0..16 {
-                let mask = TOTEM_PATTERN[row];
-                let py = bar_top + (row as f32) * cell;
-
-                for col in 0..12 {
-                    // mask bit 11 对应 col 0, bit 0 对应 col 11
-                    if (mask & (1 << (11 - col))) != 0 {
-                        let px = if cfg.mirror {
-                            // mirror: 图腾显示在右端，col 0 在最右侧，col 11 在左侧齿孔接缝
-                            start_x + bar_width - ((col as f32) + 1.0) * cell
-                        } else {
-                            // 常规: 图腾显示在左端，col 0 在最左侧，col 11 在右侧齿孔接缝
-                            start_x + (col as f32) * cell
-                        };
-
-                        // 点阵主色块 (每个点保留微隙，呈现原汁原味的游戏 LED 点阵屏质感)
-                        draw_list.add_rect_filled(
-                            ImVec2::new(px, py),
-                            ImVec2::new(px + dot_size, py + dot_size),
-                            totem_color,
-                            0.0,
-                        );
-                    }
-                }
-            }
         } else {
             // ========================================================
             // 极简现代扁平血条风格 (带微圆角与完整描边)
