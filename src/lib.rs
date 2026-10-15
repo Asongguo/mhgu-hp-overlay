@@ -4,6 +4,7 @@ extern crate alloc;
 
 pub mod buffer;
 pub mod config;
+pub mod font;
 pub mod monster;
 pub mod names;
 pub mod render;
@@ -12,6 +13,7 @@ use core::fmt::Write;
 
 use crate::buffer::StringBuffer;
 use crate::config::{CONFIG, load_ini_config};
+use crate::font::ensure_chinese_font_loaded;
 use crate::monster::{
     MAX_POINTERS_IN_LIST, MonsterDisplay, MonsterPointerList, find_monster_pointer_list,
     is_monster_data_sane, is_valid_pointer_list,
@@ -33,6 +35,9 @@ fn main() {
 #[forge::imgui_free_render]
 fn render_overlay() {
     unsafe {
+        // 0. 确保中文字体（根据配置大小）已加载
+        ensure_chinese_font_loaded(CONFIG.font_size);
+
         let heap = forge::mem::heap_addr();
 
         // 1. 获取/刷新列表指针
@@ -97,12 +102,13 @@ fn render_overlay() {
 
         // 3. 诊断 HUD 渲染 (可选)
         if cfg.show_debug {
-            // 在 debug 栏中打印当前血条使用的 (pos_x, pos_y) 坐标及尺寸，方便排查是否在屏幕外
-            let mut info_buf = StringBuffer::<64>::new();
+            // 在 debug 栏中打印当前血条使用的 (pos_x, pos_y) 坐标、尺寸及中文字体加载状态
+            let mut info_buf = StringBuffer::<128>::new();
+            let font_stat = crate::font::get_font_status();
             let _ = write!(
                 info_buf,
-                "Pos:({:.0},{:.0}) Size:({:.0}x{:.0})",
-                cfg.pos_x, cfg.pos_y, cfg.bar_width, cfg.bar_height
+                "Pos:({:.0},{:.0}) Size:({:.0}x{:.0}) Font:[{}]",
+                cfg.pos_x, cfg.pos_y, cfg.bar_width, cfg.bar_height, font_stat
             );
             draw_debug_hud(heap, CACHED_LIST_PTR, SCAN_COOLDOWN, valid_count, Some(info_buf.as_str()));
         }

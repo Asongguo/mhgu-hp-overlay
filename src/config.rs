@@ -56,6 +56,8 @@ pub struct PluginConfig {
     #[section("Display")]
     pub native_style: bool,
     pub mirror: bool,
+    pub reverse_drain: bool,
+    pub use_english: bool,
     pub current_map_only: bool,
     pub show_debug: bool,
 }
@@ -109,6 +111,8 @@ impl Default for PluginConfig {
 
             native_style: true,
             mirror: true,
+            reverse_drain: false,
+            use_english: false,
             current_map_only: false,
             show_debug: false,
         }
@@ -162,6 +166,8 @@ pub static mut CONFIG: PluginConfig = PluginConfig {
 
     native_style: true,
     mirror: true,
+    reverse_drain: false,
+    use_english: false,
     current_map_only: false,
     show_debug: false,
 };

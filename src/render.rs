@@ -5,7 +5,7 @@ use forge::sys::imgui::{ImDrawFlags, ImVec2};
 use crate::buffer::StringBuffer;
 use crate::config::PluginConfig;
 use crate::monster::{MonsterDisplay, MonsterPointerList};
-use crate::names::get_monster_cn_name;
+use crate::names::{get_monster_cn_name, get_monster_en_name};
 
 // ==========================================
 // 绘制逻辑
@@ -17,8 +17,19 @@ pub fn draw_outlined_text(
     text_col: forge::sys::imgui::ImU32,
     outline_col: forge::sys::imgui::ImU32,
     font_outline: bool,
+    font_size: f32,
     text: &str,
 ) {
+    let font_opt = unsafe { crate::font::CHINESE_FONT };
+
+    let draw_single_text = |p: ImVec2, col: forge::sys::imgui::ImU32| {
+        if let Some(ref font) = font_opt {
+            draw_list.add_text_with_font(font, font_size, p, col, text);
+        } else {
+            draw_list.add_text(p, col, text);
+        }
+    };
+
     if font_outline {
         let offsets = [
             (-1.0, 0.0),
@@ -31,15 +42,11 @@ pub fn draw_outlined_text(
             (1.0, 1.0),
         ];
         for (dx, dy) in offsets {
-            draw_list.add_text(
-                ImVec2::new(pos.x + dx, pos.y + dy),
-                outline_col,
-                text,
-            );
+            draw_single_text(ImVec2::new(pos.x + dx, pos.y + dy), outline_col);
         }
     }
 
-    draw_list.add_text(pos, text_col, text);
+    draw_single_text(pos, text_col);
 }
 
 pub fn draw_debug_hud(
@@ -121,7 +128,7 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
         cfg.outline_color_a,
     );
 
-    // MHGU 原生古代猎人图腾点阵数据 (16 行 × 12 列)，来源于 JS LED 预览提取
+    // MHGU 原生古代猎人图腾点阵数据 (16 行 × 12 列)
     // 位 11~0 分别代表第 0~11 列的点亮状态
     const TOTEM_PATTERN: [u16; 16] = [
         0xFF6, // row  0: ########.##.
@@ -148,27 +155,33 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
 
         if cfg.native_style {
             // ========================================================
-            // 怪物猎人GU (MHGU) 原生点阵 UI 风格 (带半透明青蓝风格)
+            // 怪物猎人GU (MHGU) 原生点阵 UI 风格 (优化图腾渲染与防透色)
             // ========================================================
-            // 点阵尺寸计算：16行等比撑满 bar_height
             let cell = bar_height / 16.0;
 
-            // 布局划分：
-            // 点阵结构：c=0..7 为图腾方块(宽 8*cell)，c=8 为间隙(1*cell)，c=9..10 为齿孔(2*cell)，c=11 为外侧(1*cell)
-            // mirror = true (反转):
-            // - 图腾在最右侧 (占 8*cell)，齿孔和间隙在距离右端 8*cell ~ 12*cell 区域
-            // - 血条向右一直延伸到图腾实心方块外壁 (即右侧保留 8*cell)，从而完全填满齿孔与透明间隙
-            // mirror = false (常规):
-            // - 血条向左延伸到左侧图腾实心方块外壁 (左侧保留 8*cell)
-            let totem_block_w = cell * 8.0;
-            let bar_actual_w = (bar_width - totem_block_w).max(40.0);
-            let (bar_start_x, bar_end_x) = if cfg.mirror {
-                (start_x, start_x + bar_width - totem_block_w)
+            // 图腾整个占 12 列宽 (包含 8 列主体 + 4 列齿孔间隙)
+            let totem_w = cell * 12.0;
+            let bar_actual_w = (bar_width - totem_w).max(40.0);
+
+            // 划分血条色槽区域与图腾底板区域，严格无缝相接，互不溢入
+            let (bar_start_x, bar_end_x, totem_left_x) = if cfg.mirror {
+                // 图腾在最右侧: 血条在左 (start_x .. start_x + bar_actual_w), 图腾在右
+                (start_x, start_x + bar_actual_w, start_x + bar_actual_w)
             } else {
-                (start_x + totem_block_w, start_x + bar_width)
+                // 图腾在最左侧: 图腾在左 (start_x .. start_x + totem_w), 血条在右
+                (start_x + totem_w, start_x + bar_width, start_x)
             };
 
-            // 1. 底层半透明黑灰背景
+            // 1. 图腾底板黑色基座 (彻底阻断绿红血色穿透齿孔)
+            let totem_base_col = color(18, 20, 24, 230);
+            draw_list.add_rect_filled(
+                ImVec2::new(totem_left_x, bar_top),
+                ImVec2::new(totem_left_x + totem_w, bar_bottom),
+                totem_base_col,
+                0.0,
+            );
+
+            // 2. 底层半透明黑灰背景 (仅在血条槽内)
             draw_list.add_rect_filled(
                 ImVec2::new(bar_start_x, bar_top),
                 ImVec2::new(bar_end_x, bar_bottom),
@@ -176,7 +189,7 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 0.0,
             );
 
-            // 2. 红色损失血量底槽 (全长)
+            // 3. 红色损失血量底槽 (全长)
             draw_list.add_rect_filled(
                 ImVec2::new(bar_start_x, bar_top),
                 ImVec2::new(bar_end_x, bar_bottom),
@@ -184,18 +197,25 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 0.0,
             );
 
-            // 3. 绿色当前剩余血量条
+            // 4. 绿色当前剩余血量条 (支持 reverse_drain 配置扣血方向)
             let ratio = if m.max_hp > 0 {
                 (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0)
             } else {
                 0.0
             };
 
-            let (green_left, green_right) = if cfg.mirror {
-                // 反转模式：血量靠右侧（靠近右侧图腾），向左扣减
+            // 扣减方向判定：
+            // mirror=true: 默认满血靠右（图腾侧），从左向右扣
+            // reverse_drain=true 则反转为满血靠左，向右扣
+            let drain_from_right = if cfg.mirror {
+                !cfg.reverse_drain
+            } else {
+                cfg.reverse_drain
+            };
+
+            let (green_left, green_right) = if drain_from_right {
                 (bar_end_x - bar_actual_w * ratio, bar_end_x)
             } else {
-                // 常规模式：血量靠左侧（靠近左侧图腾），向右扣减
                 (bar_start_x, bar_start_x + bar_actual_w * ratio)
             };
 
@@ -208,7 +228,7 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 );
             }
 
-            // 4. 原生高光点缀：血条顶部细亮线 (增强层次感)
+            // 5. 原生高光点缀：血条顶部细亮线 (增强层次感)
             let highlight_col = color(255, 255, 255, 45);
             draw_list.add_rect_filled(
                 ImVec2::new(bar_start_x, bar_top),
@@ -217,9 +237,13 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 0.0,
             );
 
-            // 5. 文字描述 (置于血槽内，正中对齐，文字不反转正常从左向右阅读)
+            // 6. 文字描述 (置于血槽内，支持中英文切换)
             let mut text_buf = StringBuffer::<64>::new();
-            let name = get_monster_cn_name(m.id);
+            let name = if cfg.use_english {
+                get_monster_en_name(m.id)
+            } else {
+                get_monster_cn_name(m.id)
+            };
             let _ = write!(text_buf, "{}: {}/{}", name, m.hp, m.max_hp);
 
             let label_color = if m.in_current_map { text_color } else { text_away_color };
@@ -238,12 +262,14 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 label_color,
                 outline_color,
                 cfg.font_outline,
+                cfg.font_size,
                 text_buf.as_str(),
             );
 
-            // 6. 绘制 MHGU 原生点阵图腾 (位于血条端头，青蓝色带半透明)
+            // 7. 绘制 MHGU 原生点阵图腾 (点间微隙 + 清晰分明无拉丝伪影)
             let totem_color = color(cfg.totem_r, cfg.totem_g, cfg.totem_b, cfg.totem_a);
-            let totem_shadow = color(0, 0, 0, 120);
+            let dot_inset = 0.8f32; // 每个 LED 点缩进 0.8 像素，形成点阵间隙
+            let dot_size = (cell - dot_inset).max(1.0);
 
             for row in 0..16 {
                 let mask = TOTEM_PATTERN[row];
@@ -253,26 +279,17 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                     // mask bit 11 对应 col 0, bit 0 对应 col 11
                     if (mask & (1 << (11 - col))) != 0 {
                         let px = if cfg.mirror {
-                            // mirror: 图腾显示在右侧端头，col 从右往左镜像排列
-                            // col 0 在最右侧外壁
+                            // mirror: 图腾显示在右端，col 0 在最右侧，col 11 在左侧齿孔接缝
                             start_x + bar_width - ((col as f32) + 1.0) * cell
                         } else {
-                            // 常规: 图腾显示在左侧端头，col 0 在最左侧外壁
+                            // 常规: 图腾显示在左端，col 0 在最左侧，col 11 在右侧齿孔接缝
                             start_x + (col as f32) * cell
                         };
 
-                        // 点阵细微黑阴影 (增加立体感)
-                        draw_list.add_rect_filled(
-                            ImVec2::new(px + 0.5, py + 0.5),
-                            ImVec2::new(px + cell + 0.5, py + cell + 0.5),
-                            totem_shadow,
-                            0.0,
-                        );
-
-                        // 点阵主色
+                        // 点阵主色块 (每个点保留微隙，呈现原汁原味的游戏 LED 点阵屏质感)
                         draw_list.add_rect_filled(
                             ImVec2::new(px, py),
-                            ImVec2::new(px + cell, py + cell),
+                            ImVec2::new(px + dot_size, py + dot_size),
                             totem_color,
                             0.0,
                         );
@@ -299,18 +316,22 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 3.0,
             );
 
-            // 3. 绿色当前剩余血量条
+            // 3. 绿色当前剩余血量条 (支持 reverse_drain 反转)
             let ratio = if m.max_hp > 0 {
                 (m.hp as f32 / m.max_hp as f32).clamp(0.0, 1.0)
             } else {
                 0.0
             };
 
-            let (green_left, green_right) = if cfg.mirror {
-                // 反转模式：绿色血量靠右侧，向左消耗
+            let drain_from_right = if cfg.mirror {
+                !cfg.reverse_drain
+            } else {
+                cfg.reverse_drain
+            };
+
+            let (green_left, green_right) = if drain_from_right {
                 (start_x + bar_width * (1.0 - ratio), start_x + bar_width)
             } else {
-                // 常规模式：绿色血量靠左侧，向右消耗
                 (start_x, start_x + bar_width * ratio)
             };
 
@@ -333,9 +354,13 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 ImDrawFlags::None,
             );
 
-            // 5. 血条上层覆盖文字描述，例如: "青熊兽: 500/1000" (正常文字，靠左阅读)
+            // 5. 血条上层覆盖文字描述，支持中英文
             let mut text_buf = StringBuffer::<64>::new();
-            let name = get_monster_cn_name(m.id);
+            let name = if cfg.use_english {
+                get_monster_en_name(m.id)
+            } else {
+                get_monster_cn_name(m.id)
+            };
             let _ = write!(text_buf, "{}: {}/{}", name, m.hp, m.max_hp);
 
             let label_color = if m.in_current_map { text_color } else { text_away_color };
@@ -350,6 +375,7 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 label_color,
                 outline_color,
                 cfg.font_outline,
+                cfg.font_size,
                 text_buf.as_str(),
             );
         }
