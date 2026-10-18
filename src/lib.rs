@@ -7,6 +7,7 @@ pub mod config;
 pub mod font;
 pub mod monster;
 pub mod names;
+pub mod oe;
 pub mod render;
 
 use core::fmt::Write;

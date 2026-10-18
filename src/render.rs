@@ -73,17 +73,23 @@ pub fn draw_debug_hud(
         }
     };
 
+    let mode = crate::oe::get_operation_mode();
+    let mode_str = match mode {
+        crate::oe::OperationMode::Docked => "Docked",
+        crate::oe::OperationMode::Handheld => "Handheld",
+    };
+
     if let Some(extra) = extra_log {
         let _ = write!(
             buf,
-            "[DEBUG] Scr:{:.0}x{:.0} | Ptr:0x{:X} | Cd:{} | M:{} | {}",
-            scr_w, scr_h, ptr_val, cooldown, valid_count, extra
+            "[DEBUG] Mode:{} Scr:{:.0}x{:.0} | Ptr:0x{:X} | Cd:{} | M:{} | {}",
+            mode_str, scr_w, scr_h, ptr_val, cooldown, valid_count, extra
         );
     } else {
         let _ = write!(
             buf,
-            "[DEBUG] Scr:{:.0}x{:.0} | Ptr:0x{:X} | Cd:{} | M:{}",
-            scr_w, scr_h, ptr_val, cooldown, valid_count
+            "[DEBUG] Mode:{} Scr:{:.0}x{:.0} | Ptr:0x{:X} | Cd:{} | M:{}",
+            mode_str, scr_w, scr_h, ptr_val, cooldown, valid_count
         );
     }
 
@@ -103,11 +109,18 @@ pub fn draw_debug_hud(
 pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
     let draw_list = DrawList::foreground();
 
-    let start_x = cfg.pos_x;
-    let mut current_y = cfg.pos_y;
-    let bar_width = cfg.bar_width;
-    let bar_height = cfg.bar_height;
-    let row_spacing = cfg.row_spacing;
+    // 通过 Switch Horizon OS 原生 nn::oe::GetOperationMode 获取当前模式缩放系数：
+    // - 主机模式 (Docked): scale = 1.0 (按 1080p 原始基准布局)
+    // - 掌机模式 (Handheld): scale = 720 / 1080 (~0.6667，按 720p 掌机等比缩小并保持相同屏幕占比)
+    let scale = crate::oe::get_mode_scale();
+
+    let start_x = cfg.pos_x * scale;
+    let mut current_y = cfg.pos_y * scale;
+    let bar_width = cfg.bar_width * scale;
+    let bar_height = cfg.bar_height * scale;
+    let row_spacing = cfg.row_spacing * scale;
+    let font_size = cfg.font_size * scale;
+    let text_offset_y = cfg.text_offset_y * scale;
 
     let bg_color = color(cfg.bg_r, cfg.bg_g, cfg.bg_b, cfg.bg_a);
     let border_color = color(cfg.border_r, cfg.border_g, cfg.border_b, cfg.border_a);
@@ -287,11 +300,11 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
 
             let label_color = if m.in_current_map { text_color } else { text_away_color };
 
-            let text_y = bar_top + (bar_height - cfg.font_size) * 0.5 + cfg.text_offset_y;
+            let text_y = bar_top + (bar_height - font_size) * 0.5 + text_offset_y;
             let text_x = if cfg.mirror {
-                start_x + 8.0
+                start_x + 8.0 * scale
             } else {
-                bar_start_x + 8.0
+                bar_start_x + 8.0 * scale
             };
 
             draw_outlined_text(
@@ -300,7 +313,7 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 label_color,
                 outline_color,
                 cfg.font_outline,
-                cfg.font_size,
+                font_size,
                 text_buf.as_str(),
             );
         } else {
@@ -372,9 +385,9 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
 
             let label_color = if m.in_current_map { text_color } else { text_away_color };
 
-            // 垂直居中于血条 (综合字体行高基准与大写字母光学中心，配合 cfg.text_offset_y 微调)
-            let text_y = bar_top + (bar_height - cfg.font_size) * 0.5 + cfg.text_offset_y;
-            let text_x = start_x + 8.0;
+            // 垂直居中于血条 (综合字体行高基准与大写字母光学中心，配合 text_offset_y 微调)
+            let text_y = bar_top + (bar_height - font_size) * 0.5 + text_offset_y;
+            let text_x = start_x + 8.0 * scale;
 
             draw_outlined_text(
                 &draw_list,
@@ -382,7 +395,7 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
                 label_color,
                 outline_color,
                 cfg.font_outline,
-                cfg.font_size,
+                font_size,
                 text_buf.as_str(),
             );
         }
