@@ -10,6 +10,10 @@ pub const ALL_CHINESE_CHARS: &str = "\
 阁螳螂·机甲煌祖未知: 0123456789/()·\
 ";
 
+pub fn is_valid_monster_id(id: u32) -> bool {
+    !matches!(get_monster_cn_name(id), "未知怪物")
+}
+
 pub fn get_monster_cn_name(id: u32) -> &'static str {
     match id {
         0x452060 => "跳狗龙王",

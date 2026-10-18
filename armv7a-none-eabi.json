@@ -11,6 +11,12 @@
     "linker": "arm-none-eabi-gcc",
     "linker-flavor": "gcc",
     "abi": "eabi",
+    "pre-link-args": {
+        "gcc": [
+            "-nostartfiles",
+            "-Wl,-z,text"
+        ]
+    },
     "features": "+v8,+crc,+crypto",
     "max-atomic-width": 64,
     "panic-strategy": "abort",

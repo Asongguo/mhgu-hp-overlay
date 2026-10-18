@@ -66,7 +66,7 @@ fn render_overlay() {
             for i in 0..MAX_POINTERS_IN_LIST {
                 let m_ptr = core::ptr::read_unaligned(core::ptr::addr_of!((*CACHED_LIST_PTR).monsters[i]));
                 if m_ptr.is_null() {
-                    break;
+                    continue;
                 }
 
                 if is_monster_data_sane(m_ptr) {

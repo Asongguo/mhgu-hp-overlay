@@ -68,12 +68,35 @@ pub unsafe fn is_monster_data_sane(m: *const Monster) -> bool {
         let max_hp = core::ptr::read_unaligned(core::ptr::addr_of!((*m).max_hp));
         let hp = core::ptr::read_unaligned(core::ptr::addr_of!((*m).hp));
 
+        // 基础血量区间校验 (大型怪物通常血量在 500 以上)
         if max_hp <= 100 || max_hp > 999_999 {
             return false;
         }
         if hp > max_hp {
             return false;
         }
+
+        // 校验怪物类型标识 identifier2 (0x15EA):
+        // MHGU 大怪物类型标识一般包括 0x04/0x44 (常规大怪), 0x0C/0x4C (狞猛/特殊怪), 0x08 (麒麟), 0x20/0x60 (跳狗龙等鸟龙王)
+        let identifier2 = core::ptr::read_unaligned(core::ptr::addr_of!((*m).identifier2));
+        if identifier2 == 0 {
+            return false;
+        }
+
+        // 校验位置标志 location_flag (0xD):
+        // 0x4C 表示同区，0x44 表示异区。村庄中残留实体或非战斗对象通常不具备此特征
+        let location_flag = core::ptr::read_unaligned(core::ptr::addr_of!((*m).location_flag));
+        if location_flag != 0x4C && location_flag != 0x44 {
+            return false;
+        }
+
+        // 校验合成怪物 ID 是否在已知大怪图鉴中
+        let identifier1 = core::ptr::read_unaligned(core::ptr::addr_of!((*m).identifier1)) as u32;
+        let id = (identifier1 << 8) | (identifier2 as u32);
+        if !crate::names::is_valid_monster_id(id) {
+            return false;
+        }
+
         true
     }
 }
@@ -118,13 +141,17 @@ pub unsafe fn find_monster_pointer_list() -> *const MonsterPointerList {
                 continue;
             }
 
-            let m0 = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).monsters[0]));
-            if m0.is_null() {
-                curr += 4;
-                continue;
+            // 只要列表中存在任意一个有效且健康的怪物对象，即认为找到了合法的怪物列表
+            let mut found_valid = false;
+            for i in 0..MAX_POINTERS_IN_LIST {
+                let m = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).monsters[i]));
+                if !m.is_null() && is_monster_data_sane(m) {
+                    found_valid = true;
+                    break;
+                }
             }
 
-            if is_monster_data_sane(m0) {
+            if found_valid {
                 return candidate;
             }
         }
@@ -142,7 +169,16 @@ pub unsafe fn is_valid_pointer_list(ptr: *const MonsterPointerList) -> bool {
         if f1 != 1 || f2 != 1 {
             return false;
         }
-        let m0 = core::ptr::read_unaligned(core::ptr::addr_of!((*ptr).monsters[0]));
-        is_monster_data_sane(m0)
+
+        // 校验列表中是否至少存在一个有效怪物；
+        // 当多怪任务中先死亡的怪物（如位于 index 0）尸体消失被清空/置空时，只要其他怪仍然存活，列表就依然有效！
+        for i in 0..MAX_POINTERS_IN_LIST {
+            let m = core::ptr::read_unaligned(core::ptr::addr_of!((*ptr).monsters[i]));
+            if !m.is_null() && is_monster_data_sane(m) {
+                return true;
+            }
+        }
+
+        false
     }
 }
