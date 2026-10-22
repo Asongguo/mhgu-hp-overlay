@@ -17,18 +17,14 @@ use crate::buffer::StringBuffer;
 use crate::config::{CONFIG, load_ini_config};
 use crate::font::ensure_chinese_font_loaded;
 use crate::monster::{
-    MAX_POINTERS_IN_LIST, MonsterDisplay, MonsterPointerList, find_monster_pointer_list,
+    MAX_POINTERS_IN_LIST, MonsterDisplay, MonsterPointerList, PartDisplay,
     is_monster_data_sane, is_valid_monster_ptr, is_valid_pointer_list,
+    scan_monster_pointer_list_chunk,
 };
 use crate::render::{draw_debug_hud, draw_hp_overlay};
 
 pub static mut CACHED_LIST_PTR: *const MonsterPointerList = core::ptr::null();
 static mut SCAN_COOLDOWN: u32 = 0;
-
-
-
-
-
 
 #[forge::entry]
 fn main() {
@@ -51,23 +47,39 @@ fn render_overlay() {
 
         let heap = forge::mem::heap_addr();
 
-        // 1. 获取/刷新列表指针
+        // 1. 获取/刷新列表指针 (分帧平摊切片扫描，彻底杜绝单帧遍历 5MB 导致掉帧)
         if CACHED_LIST_PTR.is_null() || !is_valid_pointer_list(CACHED_LIST_PTR) {
+            CACHED_LIST_PTR = core::ptr::null();
             if SCAN_COOLDOWN == 0 {
-                CACHED_LIST_PTR = find_monster_pointer_list();
-                SCAN_COOLDOWN = 60; // 冷却 60 帧
+                let (found_ptr, cycle_finished) = scan_monster_pointer_list_chunk();
+                if !found_ptr.is_null() {
+                    CACHED_LIST_PTR = found_ptr;
+                    SCAN_COOLDOWN = 0;
+                } else if cycle_finished {
+                    // 整轮扫描完毕未找到，进入 60 帧冷却后再开始下一轮
+                    SCAN_COOLDOWN = 60;
+                }
             } else {
                 SCAN_COOLDOWN -= 1;
             }
         }
 
         // 2. 读取怪物并过滤
+        let default_part = PartDisplay {
+            stagger_count: 0,
+            break_count: 0,
+            stagger_hp: 0,
+            break_hp: 0,
+            active: false,
+        };
         let mut list: [MonsterDisplay; MAX_POINTERS_IN_LIST] = [
             MonsterDisplay {
                 id: 0,
                 hp: 0,
                 max_hp: 0,
                 in_current_map: false,
+                parts: [default_part; 8],
+                part_count: 0,
             };
             MAX_POINTERS_IN_LIST
         ];
@@ -99,11 +111,35 @@ fn render_overlay() {
                     };
 
                     if should_display {
+                        // 读取部位耐久数据 (8个部位)
+                        let mut parts = [default_part; 8];
+                        let mut part_count = 0;
+                        for p_idx in 0..8 {
+                            let part_ptr = core::ptr::addr_of!((*m_ptr).parts[p_idx]);
+                            let stagger_count = core::ptr::read_unaligned(core::ptr::addr_of!((*part_ptr).stagger_count));
+                            let break_count = core::ptr::read_unaligned(core::ptr::addr_of!((*part_ptr).break_count));
+                            let stagger_hp = core::ptr::read_unaligned(core::ptr::addr_of!((*part_ptr).stagger_hp));
+                            let break_hp = core::ptr::read_unaligned(core::ptr::addr_of!((*part_ptr).break_hp));
+
+                            if stagger_hp > 0 || break_hp > 0 || stagger_count > 0 || break_count > 0 {
+                                parts[p_idx] = PartDisplay {
+                                    stagger_count,
+                                    break_count,
+                                    stagger_hp,
+                                    break_hp,
+                                    active: true,
+                                };
+                                part_count += 1;
+                            }
+                        }
+
                         list[valid_count] = MonsterDisplay {
                             id,
                             hp,
                             max_hp,
                             in_current_map,
+                            parts,
+                            part_count,
                         };
                         valid_count += 1;
                     }
@@ -130,11 +166,28 @@ fn render_overlay() {
         if valid_count == 0 {
             if cfg.show_debug {
                 // 设置为 500/1000，确保同时能看到绿条（剩余血量）和红条（损失血量）
+                let mut dummy_parts = [default_part; 8];
+                dummy_parts[0] = PartDisplay {
+                    stagger_count: 0,
+                    break_count: 0,
+                    stagger_hp: 200,
+                    break_hp: 350,
+                    active: true,
+                };
+                dummy_parts[1] = PartDisplay {
+                    stagger_count: 1,
+                    break_count: 1,
+                    stagger_hp: 120,
+                    break_hp: 0,
+                    active: true,
+                };
                 let dummy = [MonsterDisplay {
                     id: 0,
                     hp: 500,
                     max_hp: 1000,
                     in_current_map: true,
+                    parts: dummy_parts,
+                    part_count: 2,
                 }];
                 draw_hp_overlay(&dummy, &cfg);
             }

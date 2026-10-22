@@ -14,7 +14,7 @@ use crate::names::ALL_CHINESE_CHARS;
 pub static mut CHINESE_FONT: Option<ImFont> = None;
 pub static mut FONT_STATUS_LOG: [u8; 64] = [0; 64];
 
-const GLYPH_RANGES_CAPACITY: usize = 256;
+const GLYPH_RANGES_CAPACITY: usize = 512;
 static mut STATIC_GLYPH_RANGES: [ImWchar; GLYPH_RANGES_CAPACITY] = [0; GLYPH_RANGES_CAPACITY];
 static mut RANGES_INITIALIZED: bool = false;
 static mut FONT_TRIED_LOADING: bool = false;

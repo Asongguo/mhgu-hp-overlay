@@ -44,9 +44,21 @@ impl<const N: usize> Write for StringBuffer<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         let bytes = s.as_bytes();
         let remaining = N - self.len;
-        let to_copy = bytes.len().min(remaining);
-        self.buf[self.len..self.len + to_copy].copy_from_slice(&bytes[..to_copy]);
-        self.len += to_copy;
+        if remaining == 0 {
+            return Ok(());
+        }
+
+        let mut to_copy = bytes.len().min(remaining);
+        if to_copy < bytes.len() {
+            while to_copy > 0 && !s.is_char_boundary(to_copy) {
+                to_copy -= 1;
+            }
+        }
+
+        if to_copy > 0 {
+            self.buf[self.len..self.len + to_copy].copy_from_slice(&bytes[..to_copy]);
+            self.len += to_copy;
+        }
         Ok(())
     }
 }

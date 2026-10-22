@@ -61,6 +61,7 @@ pub struct PluginConfig {
     pub use_english: bool,
     pub current_map_only: bool,
     pub show_debug: bool,
+    pub show_parts: bool,
 }
 
 impl Default for PluginConfig {
@@ -117,6 +118,7 @@ impl Default for PluginConfig {
             use_english: false,
             current_map_only: false,
             show_debug: false,
+            show_parts: true,
         }
     }
 }
@@ -173,6 +175,7 @@ pub static mut CONFIG: PluginConfig = PluginConfig {
     use_english: false,
     current_map_only: false,
     show_debug: false,
+    show_parts: true,
 };
 
 pub static mut CUSTOM_FONT_PATH: [u8; 128] = {

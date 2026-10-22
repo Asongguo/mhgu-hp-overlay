@@ -41,11 +41,22 @@ pub struct MonsterPointerList {
 }
 
 #[derive(Copy, Clone)]
+pub struct PartDisplay {
+    pub stagger_count: u8,
+    pub break_count: u8,
+    pub stagger_hp: u16,
+    pub break_hp: i16,
+    pub active: bool,
+}
+
+#[derive(Copy, Clone)]
 pub struct MonsterDisplay {
     pub id: u32,
     pub hp: u32,
     pub max_hp: u32,
     pub in_current_map: bool,
+    pub parts: [PartDisplay; 8],
+    pub part_count: usize,
 }
 
 // ==========================================
@@ -108,14 +119,86 @@ pub unsafe fn is_monster_data_sane(m: *const Monster) -> bool {
             return false;
         }
 
-        // 校验合成怪物 ID 是否在已知大怪图鉴中
+        // 校验怪物标识 identifier1 (0x7628):
+        // 确保对象非全零未分配内存，放宽对未知怪/未录入特殊怪的死锁过滤
         let identifier1 = core::ptr::read_unaligned(core::ptr::addr_of!((*m).identifier1)) as u32;
-        let id = (identifier1 << 8) | (identifier2 as u32);
-        if !crate::names::is_valid_monster_id(id) {
+        if identifier1 == 0 {
             return false;
         }
 
         true
+    }
+}
+
+pub const CHUNK_SCAN_BYTES: u32 = 0x20000; // 每帧切片扫描 128KB (32,768 步，耗时约 0.1ms，彻底消除掉帧)
+pub static mut SCAN_CURRENT_OFFSET: u32 = SEARCH_START_OFFSET;
+
+/// 分帧切片内存扫描：每次仅扫描固定大小的内存切片
+/// 返回值：(找到的指针列表，是否已遍历完一整轮 5MB 区域)
+pub unsafe fn scan_monster_pointer_list_chunk() -> (*const MonsterPointerList, bool) {
+    unsafe {
+        let heap = forge::mem::heap_addr();
+        if heap == 0 {
+            return (core::ptr::null(), false);
+        }
+
+        let start_offset = SCAN_CURRENT_OFFSET;
+        let end_offset = (start_offset + CHUNK_SCAN_BYTES).min(SEARCH_END_OFFSET);
+        let list_size = core::mem::size_of::<MonsterPointerList>() as u32;
+
+        let start = heap.wrapping_add(start_offset);
+        let end = heap.wrapping_add(end_offset);
+
+        let mut curr = start;
+        let scan_limit = if end > list_size { end - list_size } else { 0 };
+
+        while curr < scan_limit {
+            let candidate = curr as *const MonsterPointerList;
+
+            let f1 = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).fixed1));
+            let f2 = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).fixed2));
+
+            if f1 == 1 && f2 == 1 {
+                let unused = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).unused));
+                let mut unused_sane = true;
+                for &b in &unused {
+                    if b > 1 {
+                        unused_sane = false;
+                        break;
+                    }
+                }
+
+                if unused_sane {
+                    let count = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).count));
+                    if count > 0 && count <= MAX_POINTERS_IN_LIST as u8 {
+                        let mut found_valid = false;
+                        let check_len = (count as usize).min(MAX_POINTERS_IN_LIST);
+                        for i in 0..check_len {
+                            let m = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).monsters[i]));
+                            if is_valid_monster_ptr(m) && is_monster_data_sane(m) {
+                                found_valid = true;
+                                break;
+                            }
+                        }
+
+                        if found_valid {
+                            SCAN_CURRENT_OFFSET = SEARCH_START_OFFSET;
+                            return (candidate, true);
+                        }
+                    }
+                }
+            }
+
+            curr += 4;
+        }
+
+        if end_offset >= SEARCH_END_OFFSET {
+            SCAN_CURRENT_OFFSET = SEARCH_START_OFFSET;
+            (core::ptr::null(), true)
+        } else {
+            SCAN_CURRENT_OFFSET = end_offset;
+            (core::ptr::null(), false)
+        }
     }
 }
 

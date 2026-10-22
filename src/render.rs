@@ -410,6 +410,62 @@ pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
             );
         }
 
-        current_y += row_spacing;
+        // 6. 部位耐久信息展示 (根据配置与部位状态自适应排版)
+        let label_color = if m.in_current_map { text_color } else { text_away_color };
+        if cfg.show_parts && m.part_count > 0 {
+            let part_font_size = (font_size * 0.72).max(11.0);
+            let mut part_buf = StringBuffer::<128>::new();
+            let mut part_y = bar_bottom + 3.0 * scale;
+            let part_x = start_x + 8.0 * scale;
+
+            let mut in_line = 0;
+            for (i, p) in m.parts.iter().enumerate() {
+                if !p.active {
+                    continue;
+                }
+
+                if p.break_count > 0 {
+                    let _ = write!(part_buf, "P{}:怯{}/破{}[{}] ", i + 1, p.stagger_hp, p.break_hp, p.break_count);
+                } else if p.break_hp > 0 {
+                    let _ = write!(part_buf, "P{}:怯{}/破{} ", i + 1, p.stagger_hp, p.break_hp);
+                } else {
+                    let _ = write!(part_buf, "P{}:怯{} ", i + 1, p.stagger_hp);
+                }
+
+                in_line += 1;
+                if in_line >= 4 {
+                    draw_outlined_text(
+                        &draw_list,
+                        ImVec2::new(part_x, part_y),
+                        label_color,
+                        outline_color,
+                        cfg.font_outline,
+                        part_font_size,
+                        part_buf.as_str(),
+                    );
+                    part_y += part_font_size + 2.0 * scale;
+                    part_buf.clear();
+                    in_line = 0;
+                }
+            }
+
+            if !part_buf.is_empty() {
+                draw_outlined_text(
+                    &draw_list,
+                    ImVec2::new(part_x, part_y),
+                    label_color,
+                    outline_color,
+                    cfg.font_outline,
+                    part_font_size,
+                    part_buf.as_str(),
+                );
+                part_y += part_font_size + 2.0 * scale;
+            }
+
+            let margin = (row_spacing - bar_height).max(4.0 * scale);
+            current_y = part_y + margin;
+        } else {
+            current_y += row_spacing;
+        }
     }
 }

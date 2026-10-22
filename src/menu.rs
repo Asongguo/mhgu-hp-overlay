@@ -122,6 +122,7 @@ fn render_forge_menu() {
             checkbox(c"Reverse drain animation", &mut cfg.reverse_drain);
             checkbox(c"English monster names", &mut cfg.use_english);
             checkbox(c"Current map only", &mut cfg.current_map_only);
+            checkbox(c"Show monster parts durability", &mut cfg.show_parts);
             checkbox(c"Show debug info & layout preview", &mut cfg.show_debug);
 
             separator();
