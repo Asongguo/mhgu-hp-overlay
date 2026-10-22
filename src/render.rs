@@ -20,14 +20,19 @@ pub fn draw_outlined_text(
     font_size: f32,
     text: &str,
 ) {
+    if draw_list.raw().is_null() {
+        return;
+    }
     let font_opt = unsafe { crate::font::CHINESE_FONT };
 
     let draw_single_text = |p: ImVec2, col: forge::sys::imgui::ImU32| {
         if let Some(ref font) = font_opt {
-            draw_list.add_text_with_font(font, font_size, p, col, text);
-        } else {
-            draw_list.add_text(p, col, text);
+            if !font.raw().is_null() {
+                draw_list.add_text_with_font(font, font_size, p, col, text);
+                return;
+            }
         }
+        draw_list.add_text(p, col, text);
     };
 
     if font_outline {
@@ -57,6 +62,10 @@ pub fn draw_debug_hud(
     extra_log: Option<&str>,
 ) {
     let draw_list = DrawList::foreground();
+    if draw_list.raw().is_null() {
+        return;
+    }
+
     let text_yellow = color(255, 230, 80, 240);
     let bg_color = color(0, 0, 0, 160);
 
@@ -108,11 +117,12 @@ pub fn draw_debug_hud(
 
 pub fn draw_hp_overlay(monsters: &[MonsterDisplay], cfg: &PluginConfig) {
     let draw_list = DrawList::foreground();
+    if draw_list.raw().is_null() {
+        return;
+    }
 
-    // 通过 Switch Horizon OS 原生 nn::oe::GetOperationMode 获取当前模式缩放系数：
-    // - 主机模式 (Docked): scale = 1.0 (按 1080p 原始基准布局)
-    // - 掌机模式 (Handheld): scale = 720 / 1080 (~0.6667，按 720p 掌机等比缩小并保持相同屏幕占比)
     let scale = crate::oe::get_mode_scale();
+
 
     let start_x = cfg.pos_x * scale;
     let mut current_y = cfg.pos_y * scale;

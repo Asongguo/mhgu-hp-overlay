@@ -9,6 +9,7 @@ pub mod monster;
 pub mod names;
 pub mod oe;
 pub mod render;
+pub mod menu;
 
 use core::fmt::Write;
 
@@ -17,12 +18,17 @@ use crate::config::{CONFIG, load_ini_config};
 use crate::font::ensure_chinese_font_loaded;
 use crate::monster::{
     MAX_POINTERS_IN_LIST, MonsterDisplay, MonsterPointerList, find_monster_pointer_list,
-    is_monster_data_sane, is_valid_pointer_list,
+    is_monster_data_sane, is_valid_monster_ptr, is_valid_pointer_list,
 };
 use crate::render::{draw_debug_hud, draw_hp_overlay};
 
-static mut CACHED_LIST_PTR: *const MonsterPointerList = core::ptr::null();
+pub static mut CACHED_LIST_PTR: *const MonsterPointerList = core::ptr::null();
 static mut SCAN_COOLDOWN: u32 = 0;
+
+
+
+
+
 
 #[forge::entry]
 fn main() {
@@ -36,6 +42,10 @@ fn main() {
 #[forge::imgui_free_render]
 fn render_overlay() {
     unsafe {
+        if !CONFIG.enabled {
+            return;
+        }
+
         // 0. 确保中文字体（根据配置大小）已加载
         ensure_chinese_font_loaded(CONFIG.font_size);
 
@@ -64,9 +74,11 @@ fn render_overlay() {
         let mut valid_count = 0;
 
         if !CACHED_LIST_PTR.is_null() {
-            for i in 0..MAX_POINTERS_IN_LIST {
+            let count = core::ptr::read_unaligned(core::ptr::addr_of!((*CACHED_LIST_PTR).count));
+            let check_len = (count as usize).min(MAX_POINTERS_IN_LIST);
+            for i in 0..check_len {
                 let m_ptr = core::ptr::read_unaligned(core::ptr::addr_of!((*CACHED_LIST_PTR).monsters[i]));
-                if m_ptr.is_null() {
+                if !is_valid_monster_ptr(m_ptr) {
                     continue;
                 }
 

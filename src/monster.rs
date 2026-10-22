@@ -54,10 +54,28 @@ pub struct MonsterDisplay {
 
 #[inline(always)]
 pub fn is_valid_monster_ptr(m: *const Monster) -> bool {
+    if m.is_null() {
+        return false;
+    }
     let addr = m as usize as u32;
-    // 32 位 MHGU 堆和动态对象地址通常位于 0x10000000 ~ 0x50000000 区间，
-    // 避免解引用靠近 0 地址的非法小数值导致模拟器报 Unmapped Read
-    addr >= 0x10000000 && addr <= 0x50000000
+
+    // 1. 必须 4 字节对齐（非法指针通常奇数对齐，解引用会导致 Unmapped Read）
+    if (addr & 3) != 0 {
+        return false;
+    }
+
+    // 2. 严格限制在 MHGU 堆内存有效分配范围内
+    let heap = forge::mem::heap_addr();
+    if heap != 0 {
+        if addr < heap || addr > heap.wrapping_add(0x18000000) {
+            return false;
+        }
+    } else {
+        if addr < 0x10000000 || addr > 0x38000000 {
+            return false;
+        }
+    }
+    true
 }
 
 pub unsafe fn is_monster_data_sane(m: *const Monster) -> bool {
@@ -141,11 +159,19 @@ pub unsafe fn find_monster_pointer_list() -> *const MonsterPointerList {
                 continue;
             }
 
+            // 严格校验怪物数量 count (通常为 1 ~ 5，最多不超过 MAX_POINTERS_IN_LIST)
+            let count = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).count));
+            if count == 0 || count > MAX_POINTERS_IN_LIST as u8 {
+                curr += 4;
+                continue;
+            }
+
             // 只要列表中存在任意一个有效且健康的怪物对象，即认为找到了合法的怪物列表
             let mut found_valid = false;
-            for i in 0..MAX_POINTERS_IN_LIST {
+            let check_len = (count as usize).min(MAX_POINTERS_IN_LIST);
+            for i in 0..check_len {
                 let m = core::ptr::read_unaligned(core::ptr::addr_of!((*candidate).monsters[i]));
-                if !m.is_null() && is_monster_data_sane(m) {
+                if is_valid_monster_ptr(m) && is_monster_data_sane(m) {
                     found_valid = true;
                     break;
                 }
@@ -163,6 +189,9 @@ pub unsafe fn find_monster_pointer_list() -> *const MonsterPointerList {
 }
 
 pub unsafe fn is_valid_pointer_list(ptr: *const MonsterPointerList) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
     unsafe {
         let f1 = core::ptr::read_unaligned(core::ptr::addr_of!((*ptr).fixed1));
         let f2 = core::ptr::read_unaligned(core::ptr::addr_of!((*ptr).fixed2));
@@ -170,11 +199,15 @@ pub unsafe fn is_valid_pointer_list(ptr: *const MonsterPointerList) -> bool {
             return false;
         }
 
-        // 校验列表中是否至少存在一个有效怪物；
-        // 当多怪任务中先死亡的怪物（如位于 index 0）尸体消失被清空/置空时，只要其他怪仍然存活，列表就依然有效！
-        for i in 0..MAX_POINTERS_IN_LIST {
+        let count = core::ptr::read_unaligned(core::ptr::addr_of!((*ptr).count));
+        if count == 0 || count > MAX_POINTERS_IN_LIST as u8 {
+            return false;
+        }
+
+        let check_len = (count as usize).min(MAX_POINTERS_IN_LIST);
+        for i in 0..check_len {
             let m = core::ptr::read_unaligned(core::ptr::addr_of!((*ptr).monsters[i]));
-            if !m.is_null() && is_monster_data_sane(m) {
+            if is_valid_monster_ptr(m) && is_monster_data_sane(m) {
                 return true;
             }
         }

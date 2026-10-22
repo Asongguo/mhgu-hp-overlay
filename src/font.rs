@@ -101,7 +101,7 @@ pub unsafe fn ensure_chinese_font_loaded(font_size: f32) {
         let custom_font = crate::config::get_custom_font_path();
         let mut found_path: Option<alloc::string::String> = None;
 
-        if !custom_font.is_empty() {
+        if !custom_font.is_empty() && custom_font != "default" {
             // 如果用户指定了包含设备符的绝对路径 (如 "rom:/..." 或 "sdmc:/...")，直接检测
             if custom_font.contains(":/") {
                 if forge::fs::file_exists(custom_font) {
@@ -122,12 +122,14 @@ pub unsafe fn ensure_chinese_font_loaded(font_size: f32) {
             }
         }
 
-        // 2. 若未配置或未找到自定义字体，回退到默认候选字体探测
+        // 2. 若未配置或未找到自定义字体，回退到默认候选字体探测 (包含 LXGWWenKai-Regular.ttf)
         if found_path.is_none() {
             let candidates = [
+                alloc::format!("{}:/nativeNX/plugins/LXGWWenKai-Regular.ttf", romfs_mount),
                 alloc::format!("{}:/nativeNX/plugins/font.ttf", romfs_mount),
                 alloc::format!("{}:/nativeNX/plugins/chinese.ttf", romfs_mount),
                 alloc::format!("{}:/nativeNX/plugins/simhei.ttf", romfs_mount),
+                alloc::format!("{}:/LXGWWenKai-Regular.ttf", romfs_mount),
                 alloc::format!("{}:/font.ttf", romfs_mount),
                 alloc::format!("{}:/chinese.ttf", romfs_mount),
             ];
