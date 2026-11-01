@@ -4,6 +4,8 @@
 
 基于 [Forge](https://github.com/Fexty12573/forge) 插件框架与 Rust 开发。
 
+![Alt text](images/1.webp)
+
 ---
 
 ## ✨ 主要特性
@@ -31,9 +33,11 @@
 
 ### **前置安装**
 
-1. 参考 [Forge](https://github.com/Fexty12573/forge) 的相关说明安装前置。
+参考 [Forge](https://github.com/Fexty12573/forge) 的相关说明安装前置。
 
-2. 将编译生成的模组和配置文件放置plugins目录
+### **MOD安装**
+
+将编译生成的模组和配置文件放置plugins目录
 
 以Eden模拟器为例，最终的目录结构如下：
 
@@ -43,12 +47,12 @@ eden
     └─ load
         └─ 0100770008DD8000
             └─ mods
-                ├── exefs
+                ├── exefs   # 前置
                 │   ├── main.npdm
                 │   └── subsdk9
                 └── romfs
                     └── nativeNX
-                        ├── forge
+                        ├── forge  # 前置         
                         │   ├── config.ini
                         │   ├── fonts
                         │   │   └── Roboto-Medium.ttf
@@ -58,9 +62,9 @@ eden
                         │       ├── imgui_frag.fsh
                         │       └── imgui_vert.vsh
                         └── plugins
-                            ├── hp_overlay.ini  
-                            ├── hp_overlay.nro
-                            └── LXGWWenKai-Regular.ttf 
+                            ├── hp_overlay.ini    # 本模组配置文件
+                            ├── hp_overlay.nro    # 本模组文件
+                            └── LXGWWenKai-Regular.ttf  # 中文字体
 
 ```
 
