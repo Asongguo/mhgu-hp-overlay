@@ -43,25 +43,24 @@ eden
     └─ load
         └─ 0100770008DD8000
             └─ mods
-                └── switch-mod
-                    ├── exefs
-                    │   ├── main.npdm
-                    │   └── subsdk9
-                    └── romfs
-                        └── nativeNX
-                            ├── forge
-                            │   ├── config.ini
-                            │   ├── fonts
-                            │   │   └── Roboto-Medium.ttf
-                            │   └── shaders
-                            │       ├── compiled
-                            │       │   └── imgui.fbin
-                            │       ├── imgui_frag.fsh
-                            │       └── imgui_vert.vsh
-                            └── plugins
-                                ├── hp_overlay.ini  
-                                ├── hp_overlay.nro
-                                └── LXGWWenKai-Regular.ttf 
+                ├── exefs
+                │   ├── main.npdm
+                │   └── subsdk9
+                └── romfs
+                    └── nativeNX
+                        ├── forge
+                        │   ├── config.ini
+                        │   ├── fonts
+                        │   │   └── Roboto-Medium.ttf
+                        │   └── shaders
+                        │       ├── compiled
+                        │       │   └── imgui.fbin
+                        │       ├── imgui_frag.fsh
+                        │       └── imgui_vert.vsh
+                        └── plugins
+                            ├── hp_overlay.ini  
+                            ├── hp_overlay.nro
+                            └── LXGWWenKai-Regular.ttf 
 
 ```
 
